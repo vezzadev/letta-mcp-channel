@@ -58,11 +58,17 @@ Fill in `config.url` (the MCP Streamable HTTP endpoint), optional `config.header
 
 ```json
 "subscriptions": [
-  { "uri": "email://inbox", "chatId": "inbox" }
+  { "uri": "<server-specific-uri>", "chatId": "inbox" }
 ]
 ```
 
-If you omit `subscriptions`, the plugin calls `resources/list` and subscribes to everything the server exposes, routing all updates to the `default_chat_id` from `rules.json`.
+Each `uri` is server-defined — there's no standard registry of MCP resource URIs. Real examples from existing servers: `file:///path/to/file.txt`, `git://repo/branch`, `demo://resource/static/document/architecture.md` (the everything server, see the [demo section](#end-to-end-demo-with-the-everything-server) below). To discover what a given server exposes, either:
+
+- check the server's docs
+- call `resources/list` from any MCP client (e.g. `npx @modelcontextprotocol/inspector <url>`)
+- **or just omit `subscriptions`** — the plugin will call `resources/list` itself and subscribe to everything, routing all updates to the `default_chat_id` from `rules.json`
+
+The earlier `email://inbox` motivation in the intro is hypothetical — there is no canonical "email MCP server" yet, just the *shape* an email server would take if one existed.
 
 ### 4. Get your agent ID
 

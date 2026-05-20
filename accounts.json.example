@@ -13,7 +13,7 @@
           "Authorization": "Bearer YOUR_TOKEN"
         },
         "subscriptions": [
-          { "uri": "email://inbox", "chatId": "inbox" }
+          { "uri": "REPLACE_WITH_RESOURCE_URI_FROM_YOUR_MCP_SERVER", "chatId": "inbox" }
         ],
         "bootstrap_tools": []
       },
