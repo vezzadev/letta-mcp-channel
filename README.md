@@ -169,6 +169,19 @@ AGENT=$(letta agents list | jq -r '.body[0].id')
 letta channels route add --channel mcp --chat-id architecture --agent "$AGENT" --conversation default
 ```
 
+### Optional: skip the approval gate so the tool call fires automatically
+
+When the agent reacts to a channel message it calls Letta's built-in `MessageChannel` tool, which by default requires human approval — convenient when you're babysitting the agent in the TUI, but it blocks the loop in headless deployments. For this demo (and most real channel deployments) you want the call to go through automatically:
+
+```bash
+curl -X PATCH "https://api.letta.com/v1/agents/$AGENT/tools/MessageChannel/approval" \
+  -H "Authorization: Bearer $LETTA_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"requires_approval": false}'
+```
+
+Skip this and the demo still works — you just have to approve each `MessageChannel` call in the Letta Code app/CLI by hand. See the [HITL docs](https://docs.letta.com/guides/core-concepts/tools/human-in-the-loop/) for finer-grained control.
+
 ### Run
 
 Terminal 2 — start Letta:
@@ -193,7 +206,13 @@ Letta then forwards the update to the agent and you'll see a reasoning stream re
 
 > The user received an MCP resource update notification for an architecture document. This is a channel notification from the MCP channel. I need to respond via MessageChannel. … Let me acknowledge this briefly and naturally.
 
-Followed by an `approval_request_message` for the `MessageChannel` tool call — Letta's default interactive-mode gate. Approve or deny in the Letta Code app/CLI.
+**With approval disabled** (the optional step above), the agent's `MessageChannel` call fires immediately and the plugin logs the suppression so you can see the full loop close:
+
+```
+[MCP] sendMessage suppressed (chatId=architecture): <whatever the agent wrote back>
+```
+
+Without it, the run stops at an `approval_request_message` and waits for you to approve in the Letta Code app/CLI.
 
 Every 5 seconds, a fresh update fires:
 
