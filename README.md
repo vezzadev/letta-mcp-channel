@@ -68,8 +68,6 @@ Each `uri` is server-defined — there's no standard registry of MCP resource UR
 - call `resources/list` from any MCP client (e.g. `npx @modelcontextprotocol/inspector <url>`)
 - **or just omit `subscriptions`** — the plugin will call `resources/list` itself and subscribe to everything, routing all updates to the `default_chat_id` from `rules.json`
 
-The earlier `email://inbox` motivation in the intro is hypothetical — there is no canonical "email MCP server" yet, just the *shape* an email server would take if one existed.
-
 ### 4. Get your agent ID
 
 ```bash
