@@ -73,6 +73,7 @@ export const channelPlugin = {
     let client = null;
     let transport = null;
     let uriToChatId = new Map();
+    let lastContentByUri = new Map();
     let autoMode = false;
     let running = false;
     let reconnectTimer = null;
@@ -115,6 +116,14 @@ export const channelPlugin = {
           console.error(`[MCP] readResource(${uri}) failed:`, e.message);
         }
       }
+
+      // Deduplicate: skip notification if content hasn't changed
+      const prev = lastContentByUri.get(uri);
+      if (prev !== undefined && prev === content) {
+        console.log(`[MCP] Resource unchanged, skipping: ${uri}`);
+        return;
+      }
+      lastContentByUri.set(uri, content);
 
       console.log(`[MCP] Resource updated: ${uri}`);
 
@@ -280,5 +289,22 @@ export const channelPlugin = {
     };
 
     return adapter;
+  },
+
+  // Declares that the agent's MessageChannel tool can target this channel.
+  // The MCP channel is read-only: the handler does NOT post anything back to
+  // the MCP server. It records the agent's intent in the server log and
+  // returns a message reminding the agent to use a real MCP tool (configured
+  // via Letta's native MCP integration in `.mcp.json`) to take action.
+  messageActions: {
+    describeMessageTool() {
+      return { actions: ['send'] };
+    },
+    async handleAction({ request, formatText }) {
+      const formatted = formatText(request.message ?? '');
+      const preview = (formatted.text ?? '').slice(0, 120);
+      console.log(`[MCP] MessageChannel.send acknowledged (chatId=${request.chatId}): ${preview}`);
+      return 'Acknowledged — the mcp channel is read-only and did not post anything to the MCP server. To take action, call a tool from the same MCP server through your native MCP integration (.mcp.json).';
+    },
   },
 };

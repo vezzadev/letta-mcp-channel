@@ -169,18 +169,14 @@ AGENT=$(letta agents list | jq -r '.body[0].id')
 letta channels route add --channel mcp --chat-id architecture --agent "$AGENT" --conversation default
 ```
 
-### Optional: skip the approval gate so the tool call fires automatically
+### A note on the approval gate
 
-When the agent reacts to a channel message it calls Letta's built-in `MessageChannel` tool, which by default requires human approval — convenient when you're babysitting the agent in the TUI, but it blocks the loop in headless deployments. For this demo (and most real channel deployments) you want the call to go through automatically:
+When the agent reacts to a channel message it calls Letta's built-in `MessageChannel` tool to dispatch the reply. `MessageChannel` is a **client-side tool**, not a server-registered one — it's injected into the agent loop by `letta server` at runtime when channels are active. That has two consequences worth knowing:
 
-```bash
-curl -X PATCH "https://api.letta.com/v1/agents/$AGENT/tools/MessageChannel/approval" \
-  -H "Authorization: Bearer $LETTA_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"requires_approval": false}'
-```
+1. **You cannot disable approval through the `/v1/tools/.../approval` API.** That endpoint only manages server-registered tools; for client-side tools it returns 404. (Common mistake — earlier drafts of this README recommended a `PATCH` call there. It doesn't work.)
+2. **In headless mode (`letta server --channels mcp`) the device runs with `current_permission_mode: "unrestricted"` by default**, which auto-handles approval requests for client-side tools. So you don't need to do anything — the `MessageChannel` call fires through and the plugin logs the dispatch.
 
-Skip this and the demo still works — you just have to approve each `MessageChannel` call in the Letta Code app/CLI by hand. See the [HITL docs](https://docs.letta.com/guides/core-concepts/tools/human-in-the-loop/) for finer-grained control.
+If you instead run the agent inside the interactive Letta Code TUI, each `MessageChannel` call will pop up a HITL approval prompt. Approve it manually, or change the device's permission mode. See the [HITL docs](https://docs.letta.com/guides/core-concepts/tools/human-in-the-loop/) for the full surface.
 
 ### Run
 
@@ -206,28 +202,30 @@ Letta then forwards the update to the agent and you'll see a reasoning stream re
 
 > The user received an MCP resource update notification for an architecture document. This is a channel notification from the MCP channel. I need to respond via MessageChannel. … Let me acknowledge this briefly and naturally.
 
-**With approval disabled** (the optional step above), the agent's `MessageChannel` call fires immediately and the plugin logs the suppression so you can see the full loop close:
+In headless mode the device auto-handles the approval gate (see [the approval-gate note above](#a-note-on-the-approval-gate)) and the agent's `MessageChannel.send` call dispatches through to the plugin, which logs it:
 
 ```
-[MCP] sendMessage suppressed (chatId=architecture): <whatever the agent wrote back>
+[MCP] MessageChannel.send acknowledged (chatId=architecture): <whatever the agent wrote back>
 ```
 
-Without it, the run stops at an `approval_request_message` and waits for you to approve in the Letta Code app/CLI.
+The handler then returns `Acknowledged — the mcp channel is read-only…` to the agent, reminding it that to actually take action it needs to call a real MCP tool through its native MCP integration (see [Outbound replies](#outbound-replies)).
 
-Every 5 seconds, a fresh update fires:
+Every 5 seconds the everything server fires a fresh `notifications/resources/updated`. The plugin re-reads the resource body each time and **deduplicates by content** — if the body hasn't actually changed since the last delivery, the update is dropped on the floor rather than spammed to the agent:
 
 ```
 [MCP] Resource updated: demo://resource/static/document/architecture.md
-[MCP] Resource updated: demo://resource/static/document/architecture.md
-[MCP] Resource updated: demo://resource/static/document/architecture.md
+[MCP] Resource unchanged, skipping: demo://resource/static/document/architecture.md
+[MCP] Resource unchanged, skipping: demo://resource/static/document/architecture.md
 ...
 ```
+
+This matters because most MCP servers (the everything server included) push periodic "heads-up, still here" pings that aren't tied to real change events. Without dedup the agent's context window burns down very quickly. See [`rules.json`](#rulesjson) → `fetch_on_update` if you'd rather forward every notification regardless.
 
 ### What you've just verified
 
 The plugin **connected** to a real MCP server, **subscribed** to a resource, **received** `notifications/resources/updated`, **fetched** the resource body via `resources/read`, **delivered** the update through `adapter.onMessage`, and Letta **routed** it to a real agent that reasoned about the payload and **decided to reply via the channel** — all generically, with no email-, document-, or server-specific code.
 
-To verify the **reply path**, add the same server to the agent's `.mcp.json` (see [Outbound replies](#outbound-replies)) so the agent can call the everything server's `echo` (or any) tool. With the plugin's `MessageChannel` suppressed, you'll see the agent reach back to the same MCP server via its native MCP tool integration — completing the loop the plugin was designed for.
+To verify the **reply path**, add the same server to the agent's `.mcp.json` (see [Outbound replies](#outbound-replies)) so the agent can call the everything server's `echo` (or any) tool. The agent will see the "channel is read-only" return value from `MessageChannel.send` and reach back to the same MCP server via its native MCP tool integration — completing the loop the plugin was designed for.
 
 ---
 
@@ -248,7 +246,7 @@ The channel is **inbound only**. To let the agent react to an update — send an
 
 See [docs.letta.com/guides/core-concepts/tools/mcp-tools](https://docs.letta.com/guides/core-concepts/tools/mcp-tools).
 
-When an update arrives, the agent receives an inbound message describing the change. It then calls any tool the server exposes to respond — no channel-specific glue required. The plugin's `MessageChannel.send` is suppressed because there's no semantically correct way to "post a message back" through `resources/subscribe`; tool calls are the right channel for outbound action.
+When an update arrives, the agent receives an inbound message describing the change. It then calls any tool the server exposes to respond — no channel-specific glue required. The plugin's `MessageChannel.send` action is wired up so dispatch doesn't error, but it does **not** post anything back to the MCP server: there's no semantically correct way to "post a message back" through `resources/subscribe`. It just acknowledges the agent's intent and returns a string nudging the agent to use a real MCP tool through its native integration — tool calls are the right channel for outbound action.
 
 ---
 
@@ -305,6 +303,20 @@ Re-read on every notification, so edits take effect without restarting.
 | `reconnect_max_ms` | `60000` | Cap on the exponential backoff. |
 | `max_resource_chars` | `4000` | Truncate fetched resource bodies before embedding. |
 
+#### Content-based deduplication
+
+When `fetch_on_update` is `true` (the default), the plugin keeps the last delivered body for each subscribed URI in memory and **skips delivery if the new body is byte-for-byte identical** to the previous one. This trades a tiny amount of memory (last body per URI, post-truncation) for protection against notification floods.
+
+Why this is necessary: many MCP servers — the everything server included — fire `notifications/resources/updated` on a fixed timer rather than on actual resource mutation. Without dedup the agent's context window gets flooded with identical notifications every few seconds. With dedup, the agent only wakes up when the resource has genuinely changed.
+
+When a duplicate is dropped you'll see:
+
+```
+[MCP] Resource unchanged, skipping: <uri>
+```
+
+If you set `fetch_on_update: false`, the plugin doesn't read the body, can't dedup, and forwards every notification verbatim. That's the right mode for high-fidelity notification streams where every event matters even if the URI's "current state" is unchanged (think: webhook-style events).
+
 ---
 
 ## Bootstrap tools
@@ -347,9 +359,15 @@ Letta names the routing file `routing.yaml` but parses it with `JSON.parse`. If 
 
 All runtime files (`accounts.json`, `rules.json`) are read from `PLUGIN_DIR` — the directory containing `plugin.mjs` — which is `~/.letta/channels/mcp/` at runtime. If your agent's edit tool creates files at an unexpected path, you may end up with a phantom directory that looks correct but isn't connected to the running plugin. When in doubt: `ls ~/.letta/channels/` and confirm only `mcp/` exists.
 
-### sendMessage / sendDirectReply are suppressed
+### Outbound calls are no-ops
 
-This is a notification channel, not a chat channel. If Letta tries to send anything outbound through the adapter (pairing notices, "not connected" system messages, agent replies posted via `MessageChannel`), the plugin logs and drops them rather than calling back into the MCP server. The agent reaches the server through native MCP tools instead — see [Outbound replies](#outbound-replies).
+This is a notification channel, not a chat channel. There are three outbound surfaces; all three log+drop:
+
+- `sendMessage` (legacy adapter path) — logs and returns a placeholder messageId.
+- `sendDirectReply` (Letta system messages: pairing notices, "not connected" warnings) — logs and drops silently. There is no human DM to reply to.
+- `messageActions.handleAction({ action: 'send' })` (the agent's `MessageChannel.send` tool) — logs the dispatch, does **not** call the MCP server, and returns a string telling the agent the channel is read-only so it should use a real MCP tool instead.
+
+The agent reaches the server through native MCP tools — see [Outbound replies](#outbound-replies).
 
 ### rules.json takes effect immediately
 
