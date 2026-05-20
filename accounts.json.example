@@ -1,0 +1,24 @@
+{
+  "accounts": [
+    {
+      "channel": "mcp",
+      "accountId": "email-server",
+      "displayName": "Email MCP server",
+      "enabled": true,
+      "dmPolicy": "open",
+      "allowedUsers": [],
+      "config": {
+        "url": "https://mcp.example.com/email",
+        "headers": {
+          "Authorization": "Bearer YOUR_TOKEN"
+        },
+        "subscriptions": [
+          { "uri": "email://inbox", "chatId": "inbox" }
+        ],
+        "bootstrap_tools": []
+      },
+      "createdAt": "2026-01-01T00:00:00.000Z",
+      "updatedAt": "2026-01-01T00:00:00.000Z"
+    }
+  ]
+}

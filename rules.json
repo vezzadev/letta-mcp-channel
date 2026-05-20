@@ -1,0 +1,7 @@
+{
+  "fetch_on_update": true,
+  "default_chat_id": "updates",
+  "reconnect_initial_ms": 1000,
+  "reconnect_max_ms": 60000,
+  "max_resource_chars": 4000
+}

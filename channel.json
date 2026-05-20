@@ -1,0 +1,7 @@
+{
+  "id": "mcp",
+  "displayName": "MCP",
+  "entry": "./plugin.mjs",
+  "runtimePackages": ["@modelcontextprotocol/sdk@^1.29.0"],
+  "runtimeModules": ["@modelcontextprotocol/sdk"]
+}

@@ -1,0 +1,8 @@
+node_modules/
+runtime/
+accounts.json
+state.json
+apikey.local
+*.log
+.DS_Store
+.letta/
