@@ -14,7 +14,7 @@ The agent replies by calling MCP tools through Letta's existing MCP tool integra
 
 Letta Code agents already use MCP for **tool calling** (via `.mcp.json` — see [docs.letta.com/guides/core-concepts/tools/mcp-tools](https://docs.letta.com/guides/core-concepts/tools/mcp-tools)). But MCP also defines a **push** mechanism — `resources/subscribe` + `notifications/resources/updated` — for "tell me when this resource changes." No Letta channel exposes that today.
 
-This plugin closes the gap. Subscribe an agent to an inbox resource on an email MCP server, the agent gets notified when mail arrives and can call the same server's `send_email` tool to reply. Same shape for filesystem changes, CI run status, calendar events, sensor readings — anything an MCP server can model as a subscribable resource.
+This plugin closes the gap. The shape: subscribe the agent to a resource on any MCP server, deliver each update as a message, let the agent react by calling tools on the same (or any other) configured MCP server. Concretely, that could be a filesystem server pushing `notifications/resources/updated` when a watched directory changes, a CI server pushing build-status resources, or — hypothetically, if such a server existed — an email server exposing `inbox` as a resource and `send_email` as a tool.
 
 ---
 
@@ -95,12 +95,14 @@ export LETTA_API_KEY=sk-let-...
 letta server --channels mcp --debug
 ```
 
-Expected:
+Expected (URL reflects whatever you put in `config.url`):
 
 ```
-[MCP] Connecting to https://mcp.example.com/email
-[MCP] Connected; subscribed to 1 resource(s)
+[MCP] Connecting to <your config.url>
+[MCP] Connected; subscribed to N resource(s)
 ```
+
+For a concrete worked example with full output, see the [demo](#end-to-end-demo-with-the-everything-server) below.
 
 ---
 
@@ -217,9 +219,9 @@ The channel is **inbound only**. To let the agent react to an update — send an
 ```json
 {
   "mcpServers": {
-    "email": {
+    "my-server": {
       "type": "http",
-      "url": "https://mcp.example.com/email"
+      "url": "<same URL as config.url in accounts.json>"
     }
   }
 }
@@ -227,7 +229,7 @@ The channel is **inbound only**. To let the agent react to an update — send an
 
 See [docs.letta.com/guides/core-concepts/tools/mcp-tools](https://docs.letta.com/guides/core-concepts/tools/mcp-tools).
 
-When an update arrives, the agent receives an inbound message describing the change. It then calls any tool the server exposes (e.g. `send_email`, `mark_read`) to respond — no channel-specific glue required. The plugin's `MessageChannel.send` is suppressed because there's no semantically correct way to "post a message back" through `resources/subscribe`; tool calls are the right channel for outbound action.
+When an update arrives, the agent receives an inbound message describing the change. It then calls any tool the server exposes to respond — no channel-specific glue required. The plugin's `MessageChannel.send` is suppressed because there's no semantically correct way to "post a message back" through `resources/subscribe`; tool calls are the right channel for outbound action.
 
 ---
 
